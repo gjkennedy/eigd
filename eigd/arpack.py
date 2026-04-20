@@ -3,22 +3,17 @@ import numpy as np
 import scipy
 from scipy.sparse.linalg._eigen.arpack.arpack import (
     _SymmetricArpackParams,
-    # _aslinearoperator_with_dtype,
     get_OPinv_matvec,
     get_inv_matvec,
     ArpackError,
+    HOWMNY_DICT,
 )
+from scipy.linalg.lapack import HAS_ILP64
 from scipy.sparse import issparse
 from scipy.sparse.linalg._interface import aslinearoperator, LinearOperator
-from scipy.linalg import eig, eigh
-from scipy._lib._threadsafety import ReentrancyLock
+from scipy.linalg import eigh
 
-
-# ARPACK is not threadsafe or reentrant (SAVE variables), so we need a
-# lock and a re-entering check.
-_ARPACK_LOCK = ReentrancyLock(
-    "Nested calls to eigs/eighs not allowed: " "ARPACK is not re-entrant"
-)
+_int_dtype = np.int64 if HAS_ILP64 else np.int32
 
 
 class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
@@ -38,8 +33,7 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
         which="LM",
         tol=0,
     ):
-        _SymmetricArpackParams.__init__(
-            self,
+        super().__init__(
             n,
             k,
             tp,
@@ -56,41 +50,75 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
         )
 
     def extract(self, return_eigenvectors):
-        rvec = return_eigenvectors
-        ierr = 0
-        howmny = "A"  # return all eigenvectors
-        sselect = np.zeros(self.ncv, "int")  # unused
+        # rvec = return_eigenvectors
+        # ierr = 0
+        # howmny = "A"  # return all eigenvectors
+        # sselect = np.zeros(self.ncv, "int")  # unused
+        # h = self.workl[0 : 2 * self.ncv].copy()
+        # v = self.v.copy()
+        # v = v.reshape((-1, self.ncv))
+
+        # d, z, ierr = self._arpack_extract(
+        #     rvec,
+        #     howmny,
+        #     sselect,
+        #     self.sigma,
+        #     self.bmat,
+        #     self.which,
+        #     self.k,
+        #     self.tol,
+        #     self.resid,
+        #     self.v,
+        #     self.iparam[0:7],
+        #     self.ipntr,
+        #     self.workd[0 : 2 * self.n],
+        #     self.workl,
+        #     ierr,
+        # )
+        # if ierr != 0:
+        #     raise ArpackError(ierr, infodict=self.extract_infodict)
+        # k_ok = self.iparam[4]
+        # d = d[:k_ok]
+        # z = z[:, :k_ok]
+
         h = self.workl[0 : 2 * self.ncv].copy()
         v = self.v.copy()
         v = v.reshape((-1, self.ncv))
 
-        d, z, ierr = self._arpack_extract(
+        rvec = return_eigenvectors
+        ierr = 0
+        self.arpack_dict["info"] = 0  # Clear, if any, previous error from naupd
+        howmny = HOWMNY_DICT["A"]  # return all eigenvectors ?
+        sselect = np.zeros(self.ncv, dtype=_int_dtype)
+        d = np.zeros(self.k, dtype=self.tp)
+        z = np.zeros((self.n, self.ncv), dtype=self.tp, order="F")
+
+        self._arpack_extract(
+            self.arpack_dict,
             rvec,
             howmny,
             sselect,
+            d,
+            z,
             self.sigma,
-            self.bmat,
-            self.which,
-            self.k,
-            self.tol,
             self.resid,
             self.v,
-            self.iparam[0:7],
             self.ipntr,
-            self.workd[0 : 2 * self.n],
+            self.workd,  # [0:2 * self.n],
             self.workl,
-            ierr,
         )
+
+        ierr = self.arpack_dict["info"]
         if ierr != 0:
             raise ArpackError(ierr, infodict=self.extract_infodict)
-        k_ok = self.iparam[4]
+        k_ok = self.arpack_dict["nconv"]
         d = d[:k_ok]
         z = z[:, :k_ok]
 
         Tm = np.zeros((self.ncv, self.ncv))
         for i in range(self.ncv - 1):
-            Tm[i, i + 1] = h[i + 1]
-            Tm[i + 1, i] = h[i + 1]
+            Tm[i, i + 1] = h[1 + i]
+            Tm[i + 1, i] = h[1 + i]
 
         for i in range(self.ncv):
             Tm[i, i] = h[self.ncv + i]
@@ -435,8 +463,8 @@ def eigsh_mod(
         tol,
     )
 
-    with _ARPACK_LOCK:
-        while not params.converged:
-            params.iterate()
+    # with _ARPACK_LOCK:
+    while not params.converged:
+        params.iterate()
 
-        return params.extract(return_eigenvectors)
+    return params.extract(return_eigenvectors)

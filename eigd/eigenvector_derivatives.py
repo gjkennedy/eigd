@@ -3,14 +3,33 @@ import warnings
 # Import the modified version of ARPACK with the Lanczos extraction
 from .arpack import eigsh_mod
 import numpy as np
-from scipy.sparse import linalg
+from scipy.sparse import csr_matrix, csc_matrix, issparse
 from scipy.sparse.linalg import splu
 from scipy.sparse.linalg._interface import LinearOperator, aslinearoperator
+
+try:
+    import amigo as am
+except:
+    am = None
+
+
+def to_csr(A):
+    if issparse(A):
+        return A.tocsr()
+    else:
+        return csr_matrix(A).sorted_indices()
+
+
+def to_csc(A):
+    if issparse(A):
+        return A.tocsc()
+    else:
+        return csc_matrix(A)
 
 
 class SpLuOperator(LinearOperator):
     def __init__(self, mat):
-        self.lu = splu(mat)
+        self.lu = splu(to_csc(mat))
         self.shape = mat.shape
         self.dtype = mat.dtype
         self.count = 0
@@ -21,6 +40,43 @@ class SpLuOperator(LinearOperator):
         else:
             self.count += 1
         return self.lu.solve(x.astype(self.dtype))
+
+
+class AmigoOperator(LinearOperator):
+    def __init__(self, mat, ustab=0.01):
+        csr = to_csr(mat)
+        self.shape = csr.shape
+        self.dtype = csr.dtype
+        self.m = csr.shape[0]
+        self.n = csr.shape[1]
+        self.mat = am.CSRMat(self.m, self.n, mat.indptr, mat.indices, mat.data)
+        self.ldl = am.SparseLDL(self.mat, solver_type=am.SolverType.LDL, ustab=ustab)
+        self.ldl.factor()
+        self.xvec = am.Vector(self.m)
+        self.count = 0
+
+    def _matvec(self, x):
+        soln = np.zeros(x.shape)
+        if x.ndim == 2:
+            self.count += x.shape[1]
+            for k in range(x.shape[1]):
+                self.xvec[:] = x[:, k]
+                self.ldl.solve(self.xvec)
+                soln[:, k] = self.xvec[:]
+        else:
+            self.count += 1
+            self.xvec[:] = x[:]
+            self.ldl.solve(self.xvec)
+            soln[:] = self.xvec[:]
+
+        return soln
+
+
+def make_operator(mat):
+    if am is not None and not np.issubdtype(mat.dtype, np.complexfloating):
+        return AmigoOperator(mat)
+    else:
+        return SpLuOperator(mat)
 
 
 def _project(U, V, X):
@@ -787,7 +843,7 @@ def pcpg(
             P = A - sigma * B
         elif mode == "buckling":
             P = B + sigma * A
-        factor = SpLuOperator(P.tocsc())
+        factor = make_operator(P)
 
     if psi is not None:
         _psi = psi
@@ -958,7 +1014,7 @@ def pgmres(
             P = A - sigma * B
         elif mode == "buckling":
             P = B + sigma * A
-        factor = SpLuOperator(P.tocsc())
+        factor = make_operator(P)
 
     oper = lambda x: factor(_project(BPhi, Phi, x.copy()))
     inner_product = lambda x, y: x.dot(y)
@@ -1164,7 +1220,7 @@ def sibk(
             P = A - sigma * B
         elif mode == "buckling":
             P = B + sigma * A
-        factor = SpLuOperator(P.tocsc())
+        factor = make_operator(P)
 
     # Compute the maximum norm of any of the columns of Phib
     rnorm0 = np.sqrt(np.max(np.sum(Phib**2, axis=0)))
