@@ -49,37 +49,9 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
             tol=tol,
         )
 
-    def extract(self, return_eigenvectors):
-        # rvec = return_eigenvectors
-        # ierr = 0
-        # howmny = "A"  # return all eigenvectors
-        # sselect = np.zeros(self.ncv, "int")  # unused
-        # h = self.workl[0 : 2 * self.ncv].copy()
-        # v = self.v.copy()
-        # v = v.reshape((-1, self.ncv))
+        self.v = np.zeros((self.n, self.ncv), tp, order="F")
 
-        # d, z, ierr = self._arpack_extract(
-        #     rvec,
-        #     howmny,
-        #     sselect,
-        #     self.sigma,
-        #     self.bmat,
-        #     self.which,
-        #     self.k,
-        #     self.tol,
-        #     self.resid,
-        #     self.v,
-        #     self.iparam[0:7],
-        #     self.ipntr,
-        #     self.workd[0 : 2 * self.n],
-        #     self.workl,
-        #     ierr,
-        # )
-        # if ierr != 0:
-        #     raise ArpackError(ierr, infodict=self.extract_infodict)
-        # k_ok = self.iparam[4]
-        # d = d[:k_ok]
-        # z = z[:, :k_ok]
+    def extract(self, return_eigenvectors):
 
         h = self.workl[0 : 2 * self.ncv].copy()
         v = self.v.copy()
