@@ -49,10 +49,7 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
             tol=tol,
         )
 
-        self.v = np.zeros((self.n, self.ncv), tp, order="F")
-
     def extract(self, return_eigenvectors):
-
         h = self.workl[0 : 2 * self.ncv].copy()
         v = self.v.copy()
         v = v.reshape((-1, self.ncv))

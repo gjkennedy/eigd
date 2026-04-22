@@ -45,12 +45,19 @@ class SpLuOperator(LinearOperator):
 class AmigoOperator(LinearOperator):
     def __init__(self, mat, ustab=0.01):
         csr = to_csr(mat)
+
         self.shape = csr.shape
         self.dtype = csr.dtype
         self.m = csr.shape[0]
         self.n = csr.shape[1]
-        self.mat = am.CSRMat(self.m, self.n, mat.indptr, mat.indices, mat.data)
-        self.ldl = am.SparseLDL(self.mat, solver_type=am.SolverType.LDL, ustab=ustab)
+        self.mat_obj = am.CSRMat(self.m, self.n, csr.indptr, csr.indices, csr.data)
+        self.csr = csr
+        self.ldl = am.SparseLDL(
+            self.mat_obj,
+            solver_type=am.SolverType.LDL,
+            ustab=ustab,
+            order=am.OrderingType.DEFAULT,
+        )
         self.ldl.factor()
         self.xvec = am.Vector(self.m)
         self.count = 0
@@ -65,7 +72,7 @@ class AmigoOperator(LinearOperator):
                 soln[:, k] = self.xvec[:]
         else:
             self.count += 1
-            self.xvec[:] = x[:]
+            self.xvec[:] = x
             self.ldl.solve(self.xvec)
             soln[:] = self.xvec[:]
 
