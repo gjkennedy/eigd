@@ -8,7 +8,7 @@ import numpy as np
 from scipy import sparse
 from scipy.linalg import eigh
 
-from eigd import IRAM, BasicLanczos, SpLuOperator, eval_adjoint_residual_norm
+from eigd import IRAM, BasicLanczos, make_operator, eval_adjoint_residual_norm
 
 
 class ThermalTopologyAnalysis:
@@ -288,7 +288,7 @@ class ThermalTopologyAnalysis:
                 # Compute the shifted operator
                 mat = K - self.sigma * M
                 mat = mat.tocsc()
-                self.factor = SpLuOperator(mat)
+                self.factor = make_operator(mat)
                 self.profile["sigma"] = self.sigma if i == 0 else None
 
                 self.K = K
@@ -1394,7 +1394,7 @@ class ThermalOpt:
         J = beta * M + 0.5 * K
         J = J.tocsc()
 
-        factor = SpLuOperator(J)
+        factor = make_operator(J)
 
         # Create the solution field
         u = np.zeros((self.topo.nnodes, self.nsteps + 1))
@@ -1641,7 +1641,7 @@ if __name__ == "__main__":
         method = "sibk"
         adjoint_options = {
             "lanczos_guess": True,
-            "update_guess": False,
+            "update_guess": True,
             "bs_target": 1,
         }
 

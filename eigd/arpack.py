@@ -3,22 +3,17 @@ import numpy as np
 import scipy
 from scipy.sparse.linalg._eigen.arpack.arpack import (
     _SymmetricArpackParams,
-    _aslinearoperator_with_dtype,
     get_OPinv_matvec,
     get_inv_matvec,
     ArpackError,
+    HOWMNY_DICT,
 )
+from scipy.linalg.lapack import HAS_ILP64
 from scipy.sparse import issparse
 from scipy.sparse.linalg._interface import aslinearoperator, LinearOperator
-from scipy.linalg import eig, eigh
-from scipy._lib._threadsafety import ReentrancyLock
+from scipy.linalg import eigh
 
-
-# ARPACK is not threadsafe or reentrant (SAVE variables), so we need a
-# lock and a re-entering check.
-_ARPACK_LOCK = ReentrancyLock(
-    "Nested calls to eigs/eighs not allowed: " "ARPACK is not re-entrant"
-)
+_int_dtype = np.int64 if HAS_ILP64 else np.int32
 
 
 class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
@@ -38,8 +33,7 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
         which="LM",
         tol=0,
     ):
-        _SymmetricArpackParams.__init__(
-            self,
+        super().__init__(
             n,
             k,
             tp,
@@ -55,42 +49,48 @@ class _SymmetricArpackParamsAndData(_SymmetricArpackParams):
             tol=tol,
         )
 
+        self.v = np.zeros((self.n, self.ncv), tp, order="F")
+
     def extract(self, return_eigenvectors):
-        rvec = return_eigenvectors
-        ierr = 0
-        howmny = "A"  # return all eigenvectors
-        sselect = np.zeros(self.ncv, "int")  # unused
+
         h = self.workl[0 : 2 * self.ncv].copy()
         v = self.v.copy()
         v = v.reshape((-1, self.ncv))
 
-        d, z, ierr = self._arpack_extract(
+        rvec = return_eigenvectors
+        ierr = 0
+        self.arpack_dict["info"] = 0  # Clear, if any, previous error from naupd
+        howmny = HOWMNY_DICT["A"]  # return all eigenvectors ?
+        sselect = np.zeros(self.ncv, dtype=_int_dtype)
+        d = np.zeros(self.k, dtype=self.tp)
+        z = np.zeros((self.n, self.ncv), dtype=self.tp, order="F")
+
+        self._arpack_extract(
+            self.arpack_dict,
             rvec,
             howmny,
             sselect,
+            d,
+            z,
             self.sigma,
-            self.bmat,
-            self.which,
-            self.k,
-            self.tol,
             self.resid,
             self.v,
-            self.iparam[0:7],
             self.ipntr,
-            self.workd[0 : 2 * self.n],
+            self.workd,  # [0:2 * self.n],
             self.workl,
-            ierr,
         )
+
+        ierr = self.arpack_dict["info"]
         if ierr != 0:
             raise ArpackError(ierr, infodict=self.extract_infodict)
-        k_ok = self.iparam[4]
+        k_ok = self.arpack_dict["nconv"]
         d = d[:k_ok]
         z = z[:, :k_ok]
 
         Tm = np.zeros((self.ncv, self.ncv))
         for i in range(self.ncv - 1):
-            Tm[i, i + 1] = h[i + 1]
-            Tm[i + 1, i] = h[i + 1]
+            Tm[i, i + 1] = h[1 + i]
+            Tm[i + 1, i] = h[1 + i]
 
         for i in range(self.ncv):
             Tm[i, i] = h[self.ncv + i]
@@ -351,7 +351,7 @@ def eigsh_mod(
         return eigh(A, b=M, eigvals_only=not return_eigenvectors)
 
     if sigma is None:
-        A = _aslinearoperator_with_dtype(A)
+        A = aslinearoperator(A)
         matvec = A.matvec
 
         if OPinv is not None:
@@ -369,9 +369,9 @@ def eigsh_mod(
             if Minv is None:
                 Minv_matvec = get_inv_matvec(M, hermitian=True, tol=tol)
             else:
-                Minv = _aslinearoperator_with_dtype(Minv)
+                Minv = aslinearoperator(Minv)
                 Minv_matvec = Minv.matvec
-            M_matvec = _aslinearoperator_with_dtype(M).matvec
+            M_matvec = aslinearoperator(M).matvec
     else:
         # sigma is not None: shift-invert mode
         if Minv is not None:
@@ -384,12 +384,12 @@ def eigsh_mod(
             if OPinv is None:
                 Minv_matvec = get_OPinv_matvec(A, M, sigma, hermitian=True, tol=tol)
             else:
-                OPinv = _aslinearoperator_with_dtype(OPinv)
+                OPinv = aslinearoperator(OPinv)
                 Minv_matvec = OPinv.matvec
             if M is None:
                 M_matvec = None
             else:
-                M = _aslinearoperator_with_dtype(M)
+                M = aslinearoperator(M)
                 M_matvec = M.matvec
 
         # buckling mode
@@ -398,22 +398,22 @@ def eigsh_mod(
             if OPinv is None:
                 Minv_matvec = get_OPinv_matvec(A, M, sigma, hermitian=True, tol=tol)
             else:
-                Minv_matvec = _aslinearoperator_with_dtype(OPinv).matvec
-            matvec = _aslinearoperator_with_dtype(A).matvec
+                Minv_matvec = aslinearoperator(OPinv).matvec
+            matvec = aslinearoperator(A).matvec
             M_matvec = None
 
         # cayley-transform mode
         elif mode == "cayley":
             mode = 5
-            matvec = _aslinearoperator_with_dtype(A).matvec
+            matvec = aslinearoperator(A).matvec
             if OPinv is None:
                 Minv_matvec = get_OPinv_matvec(A, M, sigma, hermitian=True, tol=tol)
             else:
-                Minv_matvec = _aslinearoperator_with_dtype(OPinv).matvec
+                Minv_matvec = aslinearoperator(OPinv).matvec
             if M is None:
                 M_matvec = None
             else:
-                M_matvec = _aslinearoperator_with_dtype(M).matvec
+                M_matvec = aslinearoperator(M).matvec
 
         # unrecognized mode
         else:
@@ -435,8 +435,8 @@ def eigsh_mod(
         tol,
     )
 
-    with _ARPACK_LOCK:
-        while not params.converged:
-            params.iterate()
+    # with _ARPACK_LOCK:
+    while not params.converged:
+        params.iterate()
 
-        return params.extract(return_eigenvectors)
+    return params.extract(return_eigenvectors)

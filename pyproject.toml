@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eigd"
+description = "Tools for eigenvector derivatives"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "Apache-2.0" }
+authors = [
+  { name = "Graeme Kennedy", email = "graeme.kennedy@ae.gatech.edu" },
+]
+keywords = []
+dependencies = [
+  "numpy>=1.16",
+  "scipy>=1.7",
+]
+
+# Get the version dynamically from eigd.__version__
+dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/smdogroup/eigd"
+
+[tool.setuptools.dynamic]
+version = { attr = "eigd.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["eigd"]
